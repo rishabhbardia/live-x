@@ -1,0 +1,18 @@
+{
+  "clip": "superbon",
+  "venue": "one_fc_cage",
+  "annotations": "annotation/rigid_geometry.json",
+  "pillar_ids": [0, 2, 4],
+  "sigmas_px": {
+    "pillar_base": 3.0,
+    "pillar_top": 3.0,
+    "landmark": 2.0,
+    "principal_point": 75.0
+  },
+  "priors_m": {"dR": 0.25, "dH": 0.05},
+  "notes": {
+    "pillar_ids": "Annotation indices, not post ids: the annotator clicks the two vertical EDGES of each post, so 0/2/4 are the first edge of three different physical posts. Index order tracks identity through the pan on this clip (index 0 runs 421 -> 196 px, index 2 runs 1178 -> 971 px, index 4 enters from the right).",
+    "image_size": "Omitted on purpose -- taken from clip.json's source dimensions.",
+    "sigmas_px": "Click noise, as assumed when whitening the residuals. The jacobian report's chi2_reduced says whether they were about right."
+  }
+}

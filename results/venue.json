@@ -1,0 +1,16 @@
+{
+  "venue": "one_fc_cage",
+  "description": "ONE Championship circular cage -- posts on a circle, octagonal fence panels between them, padded posts, upper sponsor band.",
+  "cage": {
+    "shape": "circle",
+    "n_posts": 8,
+    "size_m": 9.1,
+    "post_height_m": 1.83,
+    "post_width_m": 0.239,
+    "has_band": true,
+    "spec_verified": true,
+    "band_radius_m": 4.55,
+    "band_top_frac": 1.0,
+    "band_height_frac": 0.16666666666666666
+  }
+}
