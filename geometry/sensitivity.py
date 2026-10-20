@@ -12,6 +12,9 @@ from geometry.scene import Scene, get_pillar_world
 from geometry.projections import project
 from geometry.pose import rodrigues
 
+from scipy.stats import chi2
+
+
 def reprojection_errors(scene: Scene, 
                         structure: VenueGeometryStructure, 
                         observations: Dict[str, Any]) -> tuple[np.array, np.array, np.array]:
@@ -423,7 +426,6 @@ def parameter_uncertainty(problem: pyceres.Problem,
         block = np.asarray(
             covariance.get_covariance_block(b,b), np.float64
         ).reshape(n, n)
-        print(f"Group name : {group} has shape {block.shape}")
         for k, nm in enumerate(group):
             sigmas[nm] = float(np.sqrt(max(block[k, k], 0.0)))
 
@@ -458,5 +460,5 @@ def conditional_q(q_names, given_names, full_cov, name_idx):
 
 def major_radius_cm(E):
     """95% confidence-ellipse major semiaxis, in centimeters."""
-    scale95 = np.sqrt(-2.0 * np.log(0.05))
+    scale95 = np.sqrt(chi2.ppf(0.95, df=E.shape[0]))
     return 100 * scale95 * np.sqrt(max(np.linalg.eigvalsh(E)[-1], 0.0))

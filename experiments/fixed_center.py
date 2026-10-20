@@ -7,9 +7,10 @@ from data.venue import VenueMeasurements
 
 from geometry.scene import Scene
 from geometry.solver import staged_solve, build_problem, solve
-from geometry.sensitivity import report, jacobian_analysis, parameter_uncertainty
+from geometry.sensitivity import report, jacobian_analysis, parameter_uncertainty, build_uncertainty, subcov, major_radius_cm
 
 from pathlib import Path
+from scipy.stats import chi2
 from typing import Dict, Any
 
 import numpy as np
@@ -34,6 +35,7 @@ def fixed_center_test(scene: Scene,
     """
     
     out = []
+    out_mag_E = []
     for t in range(len(observations["frames"])):
         sel = observations["pil_idx"][:, 0] == t
         selq = observations["pt_idx"][:, 0] == t
@@ -72,8 +74,17 @@ def fixed_center_test(scene: Scene,
         )
         
         solve(prob=p, max_iter=200)
-        out.append(s1.C - scene.camera_center_of(t))
-    return np.array(out)
+        dC = s1.C - scene.camera_center_of(t)
+        out.append(dC)
+        full_cov, _, name_idx = build_uncertainty(
+            problem=p,
+            scene=s1,
+            observation=sub
+        )
+        E_CC = subcov(full_cov, ["C.x", "C.y", "C.z"], name_idx)
+        d2 = float(dC @ np.linalg.solve(E_CC, dC))
+        out_mag_E.append((d2, E_CC))
+    return np.array(out), out_mag_E
 
 if __name__ == "__main__":
 
@@ -82,7 +93,7 @@ if __name__ == "__main__":
     ap.add_argument("--clip_dir", type=str, default=None, required=True, help="Base directory with data")
     args = ap.parse_args()
     clip_path = Path(args.clip_dir)
-    clip_bundle = ClipBundle(clip_path)
+    clip_bundle = ClipBundle(clip_path, force_recompute=True)
 
     frame_load = clip_bundle.get_frame(0)
     clip_load = clip_bundle.get_clip()
@@ -138,7 +149,7 @@ if __name__ == "__main__":
           observations=observations
     )
 
-    sigmas, chi2 = parameter_uncertainty(
+    sigmas, _ = parameter_uncertainty(
           problem=problem,
           summary=summary,
           scene=scene,
@@ -146,7 +157,7 @@ if __name__ == "__main__":
     )
 
     # fixed center test
-    eps = fixed_center_test(
+    eps, mag_E = fixed_center_test(
         scene=scene,
         observations=observations,
         image_wh=image_wh,
@@ -156,8 +167,15 @@ if __name__ == "__main__":
     )
 
     print("\nfixed-centre test (per-frame centre offset, m):")
+    i = 0
     for stem, e in zip(observations["frames"], eps):
+        mahalanobis, E_CC = mag_E[i]
+        mr = major_radius_cm(E_CC) / 100.0
         print(f"  {stem}: [{e[0]:+.3f}, {e[1]:+.3f}, {e[2]:+.3f}]  "
-                f"|eps| {np.linalg.norm(e):.3f}")
+                f"|eps| {np.linalg.norm(e):.3f}"
+                f"| Mahalanobis : {mahalanobis:.4f}"
+                f"  major radius {mr:.3f} m")
+        i += 1
+    
     print(f"  median |eps| {np.median(np.linalg.norm(eps, axis=1)):.3f} m")
 
