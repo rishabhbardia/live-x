@@ -376,3 +376,26 @@ class TrackerMode(_Choice):
     """
     FIXED_CAMERA_CENTER = "fixed_camera_center"
     FREE_CAMERA_CENTER = "free_camera_center"
+
+
+class BodyPart(_Choice):
+    """
+        MHR schema
+    """
+    HEAD = 'head'
+    NECK = 'neck'
+    LEFT_SHOULDER = 'L_shoulder'
+    LEFT_UPPER_ARM = 'L_uarm'
+    LEFT_FORE_ARM = 'L_farm'
+    L_HAND = 'L_hand' 
+    RIGHT_SHOULDER = 'R_shoulder'
+    RIGHT_UPPER_ARM = 'R_uarm'
+    RIGHT_FORE_ARM = 'R_farm'
+    RIGHT_HAND = 'R_hand'
+    LEFT_THIGH = 'L_thigh'
+    LEFT_SHIN = 'L_shin'
+    LEFT_FOOT = 'L_foot'
+    RIGHT_THIGH = 'R_thigh'
+    RIGHT_SHIN = 'R_shin'
+    RIGHT_FOOT = 'R_foot'
+    TORSO = 'torso'

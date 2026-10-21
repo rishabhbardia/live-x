@@ -1,16 +1,20 @@
 from pathlib import Path
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Dict
 
 import cv2
 import numpy as np
 
+from data.types import BodyPart
 from geometry.pose import rodrigues
 from mhr.constants import (
     MHR_MODEL_NPZ,
+    MHR_PARTS_NPZ,
     MHR_FACES_KEY,
     ERODE_PX,
     MIN_PTS,
+    JOINT_HEAD,
+    JOINT_NECK
 )
 
 
@@ -53,6 +57,10 @@ class MHRWorld:
                 faces = data[MHR_FACES_KEY]
 
         faces = np.asarray(faces)
+        self.path_base = Path(model_path).parent / MHR_PARTS_NPZ
+        self.mhr_parts = np.load(self.path_base, allow_pickle=False) 
+            
+        print(f"Shape faces {faces.shape}")
         if (
             faces.ndim != 2
             or faces.shape[1] != 3
@@ -377,6 +385,98 @@ class MHRWorld:
         )
         return scale, scale * tau, info
 
+    
+    @staticmethod
+    def _unit(vector, eps=1e-12):
+        vector = np.asarray(vector, dtype=np.float64)
+        norm = np.linalg.norm(vector)
+        if not np.isfinite(norm) or norm <= eps:
+            raise ValueError("Cannot normalize a nonfinite or near-zero vector")
+        return vector / norm
+
+    def _pca_axis(self, points):
+        centered = points - points.mean(axis=0)
+        values, vectors = np.linalg.eigh(centered.T @ centered)
+        if values[-1] <= 0:
+            raise ValueError("Cannot find an axis for coincident points")
+        return vectors[:, -1]
+
+    def compute_ends(self, points, fraction=0.12, *, axis=None):
+        """Mean positions in the two end caps selected along an axis.
+
+        With axis=None, use the dominant PCA axis.
+        """
+        points = np.asarray(points, dtype=np.float64)
+        if points.ndim != 2 or points.shape[1] != 3 or len(points) < 2:
+            raise ValueError("Expected at least two points with shape (N, 3)")
+        if not np.isfinite(points).all():
+            raise ValueError("Points must be finite")
+        if not 0 < fraction < 0.5:
+            raise ValueError("fraction must be between 0 and 0.5")
+
+        axis = self._pca_axis(points) if axis is None else self._unit(axis)
+        projected = (points - points.mean(axis=0)) @ axis
+        lo, hi = np.quantile(projected, [fraction, 1.0 - fraction])
+
+        return (
+            points[projected <= lo].mean(axis=0),
+            points[projected >= hi].mean(axis=0),
+        )
+
+    def height_check(
+        self,
+        world_vertices: np.ndarray,
+        joints: np.ndarray,
+        info: Dict[str, Any],
+        target_height: float,
+    ):
+        """Compare a sum of body-part lengths with known height in metres.
+
+        world_vertices are already placed by build(); joints are the original
+        pred_keypoints_3d values. This is a pose-dependent height proxy.
+        """
+        vertices = np.asarray(world_vertices, dtype=np.float64)
+        joints = np.asarray(joints, dtype=np.float64)
+        names = list(self.mhr_parts["names"])
+        labels = np.asarray(self.mhr_parts["vertex_labels"])
+
+        if labels.shape != (len(vertices),):
+            raise ValueError("Part labels must match this person's vertices")
+        if not np.isfinite(target_height) or target_height <= 0:
+            raise ValueError("target_height must be finite and positive")
+
+        def part(*body_parts):
+            indices = [names.index(name) for name in body_parts]
+            return vertices[np.isin(labels, indices)]
+
+        # Translation cancels in the difference; normalization removes scale.
+        head_axis = (joints[JOINT_HEAD] - joints[JOINT_NECK]) @ info["R"]
+
+        segments = {
+            "head_neck": (part(BodyPart.HEAD, BodyPart.NECK), head_axis),
+            "torso": (part(BodyPart.TORSO), None),
+            "left_thigh": (part(BodyPart.LEFT_THIGH), None),
+            "left_shin": (part(BodyPart.LEFT_SHIN), None),
+            "left_foot": (part(BodyPart.LEFT_FOOT), [0.0, 0.0, 1.0]),
+        }
+
+        lengths = {}
+        for name, (points, axis) in segments.items():
+            lo, hi = self.compute_ends(points, axis=axis)
+            if "foot" in name:
+                lengths[name] =  abs(hi[2] - lo[2])
+            else:
+                lengths[name] = float(np.linalg.norm(hi - lo))
+        height = sum(lengths.values())
+        error = height - float(target_height)
+
+        return {
+            "height_m": height,
+            "target_height_m": float(target_height),
+            "error_m": error,
+            "segment_lengths_m": lengths,
+        }
+    
     def build(
         self,
         metric_depth: np.ndarray,
@@ -395,9 +495,9 @@ class MHRWorld:
         R = rodrigues(np.asarray(omega, dtype=np.float64))
         center = np.asarray(C, dtype=np.float64).reshape(3)
 
-        vertices_out = []
-        faces_out = []
-        diagnostics = []
+        vertices_out = {}
+        faces_out = {}
+        diagnostics = {}
         offset = 0
 
         for index, person in enumerate(persons):
@@ -405,8 +505,6 @@ class MHRWorld:
                 person, K, metric_depth
             )
             info["person_index"] = index
-            diagnostics.append(info)
-
             if scale is None:
                 continue
 
@@ -418,16 +516,21 @@ class MHRWorld:
 
             info["vertex_start"] = offset
             info["vertex_count"] = len(vertices)
+            info["translation"] = translation
+            info["scale"] = scale
+            info["R"] = R
+            info["C"] = C
 
-            vertices_out.append(world_vertices)
-            faces_out.append(self.faces + offset)
+            diagnostics[index] = info
+            vertices_out[index] = world_vertices
+            faces_out[index] = self.faces + offset
             offset += len(vertices)
 
         if not vertices_out:
             return None, None, diagnostics
 
         return (
-            np.concatenate(vertices_out),
-            np.concatenate(faces_out),
+            vertices_out,
+            faces_out,
             diagnostics,
         )
